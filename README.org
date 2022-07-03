@@ -1,0 +1,91 @@
+#+title: Azure.el
+#+subtitle: Interact with Azure from the comfort of your favorite editor
+
+* Requirements
+
+[[https://www.gnu.org/software/emacs/][Emacs 26.2]] or later, [[https://pandoc.org][pandoc]] and the Emacs-packages listed below.
+- [[https://github.com/chuntaro/emacs-async-await][Async-await -- Async/Await for Emacs]] 
+- [[https://github.com/tkf/emacs-request][Request.el -- Easy HTTP request for Emacs Lisp]] 
+- [[https://github.com/magnars/s.el][s.el -- The long lost Emacs string manipulation library]]
+
+* Installation
+
+Package-installation can be done in many ways in Emacs. I've found
+[[https://github.com/radian-software/straight.el][straight.el]] with the ~use-package~ macro to suit my needs quite well, so
+it could be worth checking out. Below you can see how you could
+install ~azure.el~ using ~straight~.
+#+begin_src emacs-lisp
+(use-package async-await)
+(use-package request)
+(use-package s)
+(use-package azure
+  :after (async-await request s)
+  :commands (azure-search)
+  :ensure-system-package pandoc
+  :config
+  (let ((token-file (expand-file-name "~/.azure.plstore")))
+    (setq azure-access-token-file token-file
+          azure-organization "your-organization")))
+#+end_src
+
+* Usage
+
+In order to make requests to Azure's API, you will need to set an
+organization, a project, a team and an access-token. You can set all
+of the above via the command ~azure-init~.
+The token will need access to the scopes listed below to function
+properly. Note that ~Azure.el~ is in early stages and that the scope
+could increase with time, making it neccessary to generate a new token.
+
+vso.work_write
+
+** azure-search
+
+This is the main entry-point when using azure.el. It brings up a
+search-buffer, where you can list and find work-items via different
+criteria. Wether you are assigned to the work-item, wether it is in
+progress etc. Clicking an item, brings up a buffer of the work-item at
+point, essentially running ~azure-show-work-item~
+
+** azure-work-item
+
+Shows an org-mode representation of a work-item. Typically, this is
+run when clicking a work-item from a search-buffer, but you could also
+quickly find a work-item by searching for it in the mini-buffer by
+name or exact id. In addition to the properties available in Azure's
+UI; like comments, effort etc. Azure.el supports personal notes. These
+are notes that are not part of the synchronization that happens upon
+save and thus can only be viewed from your local machine. As briefly
+mentioned, the work-item is updated upon save. This is a synchronous
+event where the task-issue will be reified with whatever is on the
+server. That means that upon save, the file you just saved will be
+updated with the "truth" from the server and some UI-jumps are to be
+expected.
+
+** azure-work-item-create
+
+With this command, you will be prompted to input a title. Once a title
+is supplied, a work-item is created on the server and the new item is
+visited via ~azure-show-item~. At this point, it's just about editing
+and saving the changes.
+
+** Working with org-mode & git
+
+So this is where the pieces all falls into place! Say you've done some
+work on an item that you are [[https://orgmode.org/manual/Clocking-commands.html][clocked]] into. You are ready to commit and
+have a commit-message prompt open. By evaluating ~org-clock-goto~, you
+can see the work-item and all the discussion about it. Oftentimes I
+can use the body and title of the work-item as commit-message and if
+not, I tend to have drafted something in the personal notes section
+that would suffice. I've found that writing such commit-messages
+upfront, helps me keep each commit focused.
+
+* Contributing
+
+My ambitions for ~azure.el~ is just to cover my day to day usage of
+Azure's functionality, but you might set the bar higher and want to
+contribute. If you find a flaw or something that's not quite optimal,
+you can file an issue, but code-contributions are more than welcome as
+well. Just note that all contributions should happen in ~azure.org~ and
+not ~azure.el~ and that the outline reflects Azure's documentation to
+some degree, making it easier to keep track.

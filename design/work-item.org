@@ -1,0 +1,29 @@
+:properties:
+:id: 1
+:created-by: Henrik Kjerringvåg (hkjels@me.com)
+:end:
+* TODO Title of the work-item
+:LOGBOOK:
+CLOCK: [2022-07-09 Sat 21:45]--[2022-07-10 Sun 20:13] => 22:28
+:END:
+
+Body-text / description of the work-item. This part will have to be
+converted to/from html upon synchronization.
+
+** Discussion
+
+#+id: 9008047
+This is how you would write a comment. The ~id~ would be populated when
+the results are back from Azure. This part would also have to be
+converted to/from html.
+
+-----
+
+* Personal notes
+
+This is just a preliminary sketch of what a work-item could like.
+
+This part (personal notes) stays on the local machine, but is
+persisted between synchronizations.
+
+We store the document on disk, so that we can do clocking etc.

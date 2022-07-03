@@ -1,0 +1,63 @@
+#+language: no
+#+tags: noexport(n)
+#+exclude_tags: noexport
+#+options: broken-links:mark tags:nil todo:nil ':t f:t tex:t
+#+html_doctype: html5
+#+html_head: 
+#+html_head_extra: <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
+#+html_head_extra: <link rel="stylesheet" href="./docs.css">
+#+html_head_extra: <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@10.7.2/styles/atelier-heath-light.min.css">
+#+html_head_extra: <script src="https://unpkg.com/@highlightjs/cdn-assets@10.7.2/highlight.min.js"></script>
+#+html_head_extra: <script defer src="./docs.js"></script>
+#+latex_class: article
+#+latex_header: \usepackage[cache=false]{minted}
+#+latex_header: \usemintedstyle{colorful}
+#+latex_header: \setminted{frame=lines,numbers=none,linenos=false}
+#+latex_header: \hypersetup{hidelinks}
+
+
+* Development
+
+When the document is tangled, we ensure that headings that end with ":"
+is prefixed with an additional semi-colon and run linting of the final output.
+#+name: dev
+#+begin_src emacs-lisp :results none
+(defun package-post-tangle-hook ()
+  "Post-process and lint the final output."
+  (when (equal (file-name-base (buffer-file-name (current-buffer))) "azure")
+    (with-current-buffer (current-buffer)
+      (goto-char (point-min))
+      (insert ";; -*- coding: utf-8; lexical-binding: t; -*-\n")
+      (while (re-search-forward "^;; \\([^:]+\\):$" nil 'noerror)
+        (replace-match ";;; \\1:"))
+      (save-buffer)
+      (package-lint-current-buffer))))
+
+(add-hook 'org-babel-post-tangle-hook 'package-post-tangle-hook)
+#+end_src
+
+* License
+
+#+name: year
+#+begin_src shell
+date +'%Y'
+#+end_src
+
+#+name: license
+#+begin_src text :tangle LICENSE.txt :noweb yes
+Copyright (C) <<year()>>  Henrik Kjerringvåg 
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#+end_src
+
