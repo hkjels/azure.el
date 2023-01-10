@@ -1,5 +1,4 @@
 ;; -*- coding: utf-8; lexical-binding: t; -*-
-;; azure.el --- Interact with Azure from the comfort of your favorite editor
 
 ;; Author: Henrik Kjerringvåg <henrik@kjerringvag.no>
 ;; Version: 2022.07.15
@@ -7,7 +6,7 @@
 ;; Keywords: tools, azure
 ;; Package-Requires: ((emacs "26.2") (async-await "1.1") (request "0.3.3") (s "1.12.0"))
 
-;; Copyright (C) 2022  Henrik Kjerringvåg
+;; Copyright (C) 2023  Henrik Kjerringvåg 
 ;; 
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -22,14 +21,13 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-;;; Commentary:
-;;; The purpose of this package from the onset, is to cover my day to day
+
+;; The purpose of this package from the onset, is to cover my day to day
 ;; needs when dealing with Azure. Basically; finding tasks, changing
-;; their status, comment, create new tasks and record work. 
+;; their status, comment, create new tasks and record work. So for now,
+;; just the DevOps part of Azure will be supported.
 
 
-
-;; Code:
 
 (require 'async-await)
 (require 'easymenu)
@@ -45,7 +43,7 @@
   :group 'azure
   :group 'tools)
 
-;; Token
+
 
 ;; To access the Azure API, you'll need to provide a personal
 ;; access-token. You'll be prompted for the token upon using ~azure.el~ the
@@ -65,7 +63,7 @@
 ;; This is where we store and access the said token. 
 
 (defun azure-access-token ()
-  "Returns an access-token already stored on disk or asks for token if not.
+  "Returns access-token stored on disk or asks for token if not found.
    In either case, the access-token will be returned base64-encoded."
   (base64-encode-string
    (concat ":"
@@ -82,7 +80,7 @@
                  (plstore-close store)
                  token))))))
 
-;; Caching
+
 
 ;; Some parts of ones Azure-setup rarely change, so we do some
 ;; rudimentary caching to save a few requests. We also keep
@@ -117,9 +115,6 @@
 (defvar azure--state nil
   "Work-item state currently used for filtering.")
 
-;; Required information
-
-
 (defcustom azure-organization nil
   "The name of the Azure DevOps organization."
   :group 'azure
@@ -150,9 +145,9 @@
   :group 'azure
   :type 'boolean)
 
-(defcustom azure-search-results-max 100
+(defcustom azure-search-results-max 200
   "Maximum number of results returned when searching for work-items.
-   <b>200</b> is the maximum supported by Azure's API."
+   Note that <b>200</b> is the maximum supported by Azure's API."
   :group 'azure
   :type 'natnum)
 
@@ -194,9 +189,6 @@
   "https://dev.azure.com/{organization}/{project}/{team}/_apis/{api}"
   "Base-URL of the Azure API. Note that the API spans multiple hosts,
   but this is the most common one.")
-
-;; Menus and bindings
-
 
 (defcustom azure-use-menu t
   "Show a dedicated menu for Azure in the menu-bar."
@@ -254,26 +246,16 @@
     ["Create work-item" azure-work-item-create
      :help "Create a new work-item."]))
 
-;; Logging
-
-
 (defun azure-log (&rest args)
   "Like `message`, but will only output when `azure-debug` is not `nil`."
   (when azure-debug
     (cl-fresh-line)
     (apply 'message args)))
 
-;; Request handling
-
-
-;; (defvar progress (make-progress-reporter "Synchronizing with Azure..." 0 500))
-
-;; (defvar timer nil)
-
 (defun azure-req (method api success &optional params data headers)
   "Make a request to the Azure API and return it to the passed in SUCCESS-handler.
-  Note that instead of using this function directly, you should use
-  the helper-functions. `azure-get` etc.
+  <i>Note that instead of using this function directly, you should use
+  the helper-functions. `azure-get` etc.</i>
 
   METHOD should be one of (GET, PUT, POST, PATCH)
 
@@ -297,8 +279,6 @@
                             ("User-Agent" . "azure.el"))
                           (or headers '()))))
     (azure-log "Azure requested: %s" url)
-    ;; (when (eq timer nil)
-    ;;   (setq timer (run-with-timer 0.2 t (lambda () (progress-reporter-update progress)))))
     (request (url-encode-url url)
       :type (upcase method)
       :data (json-encode data)
@@ -310,12 +290,7 @@
               (lambda (&rest args &key error-thrown &allow-other-keys)
                 (progn
                   (azure-log "Arguments when error occurred:\n%s" args)
-                  (error "%s" error-thrown))))
-      ;; :complete (cl-function
-      ;;            (lambda (&key response &allow-other-keys)
-      ;;              (cancel-timer timer)
-      ;;              (progress-reporter-done progress)))
-      )))
+                  (error "%s" error-thrown)))))))
 
 (defun azure-get (api success &optional params)
   "GET a resource and return it to the success-handler."
@@ -333,21 +308,15 @@
   "POST a resource and return the result to the success-handler."
   (azure-req "POST" api success params data headers))
 
-;; Helper functions
-
-
 (defun azure--html-to-org (html)
   "Convert an HTML string into org-mode string."
   (shell-command-to-string
    (concat "echo \"" html "\" | pandoc -f html -t org")))
 
 (defun azure--org-to-html (org)
-  "Convert ORG-mode string into html string."
+  "Convert org-mode string into HTML string."
   (shell-command-to-string
    (concat "echo \"" org "\" | pandoc -f org -t html")))
-
-;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/core/projects/list][Projects]]
-
 
 (defun azure-select-project ()
   "Select a project from a list of all the projects in the
@@ -370,11 +339,8 @@
                        (run-hooks 'azure-select-project-hook)
                        (funcall resolve project)))))))))
 
-;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/core/teams/get-all-teams][Teams]]
-
-
 (defun azure--team-members (callback)
-  "Get a list of members for a specific team and return it to the CALLBACK."
+  "Get a list of members for a specific team and return it through a CALLBACK."
   (azure-get "members/"
              (cl-function
               (lambda (&key data &allow-other-keys)
@@ -402,9 +368,6 @@
                        (funcall resolve team))))
                   '(("api-version" . "7.1-preview.3")))))))
 
-;; Faces
-
-
 (defface azure-item-id '((t :inherit shadow))
   "Face used with a work-items id.")
 
@@ -416,8 +379,6 @@
 
 (defface azure-item-tags '((t :inherit italic))
   "Face used with a work-items tags.")
-
-;; Header
 
 (defun azure--test-output ()
   (message "Test output"))
@@ -476,9 +437,6 @@
       (azure--search-header-assignee) space
       (azure--search-header-state)))))
 
-;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/search/work-item-search-results/fetch-work-item-search-results][Work Item Search Results]]
-
-
 (defun azure--search (&optional text assignee status)
   "Query azure's API for work-items.
 
@@ -505,7 +463,7 @@
                   ("filters" . ("System.AssignedTo" . (,(or assignee "")))))
                 '(("api-version" . "7.1-preview.1")))))
 
-;; Results buffer
+
 
 ;; When doing a search (~azure-search~), we validate the configuration
 ;; first via ~azure-init~.  The rest is handled interactively from inside
@@ -534,6 +492,7 @@
     (read-only-mode)
     (hl-line-mode)
     (buffer-disable-undo)
+    (hack-local-variables-apply)
     (when azure-search-show-header
       (azure--search-header-line))))
 
@@ -588,9 +547,6 @@
   (remove-hook 'quit-window-hook 'azure-search-quit nil 'local)
   (kill-buffer (azure--buffer-name azure-search-buffer)))
 
-;; Comments
-
-
 (defun azure--comments (id)
   ""
   (promise-new
@@ -604,9 +560,6 @@
                        (azure-log "Comments: %S" comments))))
                   '(("api-version" . "7.1-preview.3")))))))
 
-;; Work items
-
-
 (defun azure--item-buffer (title assignee)
   "Returns the compiled name of a work-item buffer."
   (s-replace-all `(("%O" . ,azure-organization)
@@ -615,9 +568,6 @@
                    ("%t" . ,title)
                    ("%a" . ,assignee))
                  azure-item-buffer))
-
-;; Work Item Buffer
-
 
 (defun azure-work-item-file (id)
   "Expanded file-path of the work-item prefixed with ID."
@@ -748,9 +698,6 @@
   (interactive (list (azure-search-selected-id)))
   (funcall 'azure--update-work-item-buffer id))
 
-;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/create][Create]]
-
-
 (defun azure-work-item-create (item-type title)
   "Create a new work-item by specifying ITEM-TYPE and TITLE.
 
@@ -771,9 +718,6 @@
                 '(("api-version" . "7.1-preview.3"))
                 '(("Content-Type" . "application/json-patch+json")))))
 
-;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/get-work-item][Get Work Item]]
-
-
 (defun azure--work-item-get (id)
   "Get all the relevant information about a work-item by it's ID.
 
@@ -789,7 +733,7 @@
                 '(("$expand" . "All")
                   ("api-version" . "7.1-preview.3"))))))
 
-;; Initialization
+
 
 ;; In order to use Azure's API, we need to set the required fields to
 ;; valid values. This can all be done interactively via ~azure-init~. If
@@ -835,7 +779,7 @@
        (not (eq azure-project nil))
        (not (eq azure-team nil))))
 
-;; Minor mode
+
 
 ;; This package is written as a minor-mode in order to cleanly provide
 ;; menus & bindings.
