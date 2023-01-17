@@ -3,24 +3,15 @@
 
 * Requirements
 
-[[https://www.gnu.org/software/emacs/][Emacs 26.2]] or later, [[https://pandoc.org][pandoc]] and the Emacs-packages listed below.
-- [[https://github.com/chuntaro/emacs-async-await][Async-await -- Async/Await for Emacs]] 
-- [[https://github.com/tkf/emacs-request][Request.el -- Easy HTTP request for Emacs Lisp]] 
-- [[https://github.com/magnars/s.el][s.el -- The long lost Emacs string manipulation library]]
+[[https://www.gnu.org/software/emacs/][Emacs 26.2]] or later and [[https://pandoc.org][pandoc]].
 
 * Installation
 
 Package-installation can be done in many ways in Emacs. I've found
-[[https://github.com/radian-software/straight.el][straight.el]] with the ~use-package~ macro to suit my needs quite well, so
-it could be worth checking out. Below you can see how you could
-install ~azure.el~ using ~straight~.
+[[https://github.com/radian-software/straight.el][straight.el]] with the ~use-package~ macro to suit my needs quite well.
+Below you can see how I install ~azure.el~ using ~straight~.
 #+begin_src emacs-lisp
-(use-package async-await)
-(use-package request)
-(use-package s)
 (use-package azure
-  :after (async-await request s)
-  :commands (azure-search)
   :ensure-system-package pandoc
   :config
   (let ((token-file (expand-file-name "~/.azure.plstore")))
@@ -35,11 +26,12 @@ organization, a project, a team and an access-token. You can set all
 of the above via the command ~azure-init~.
 The token will need access to the scopes listed below to function
 properly. Note that ~Azure.el~ is in early stages and that the scope
-could increase with time, making it neccessary to generate a new token.
+could increase with time, possibly making it neccessary to generate a
+new token.
 
 vso.work_write
 
-** azure-search
+** azure-search-mode
 
 This is the main entry-point when using azure.el. It brings up a
 search-buffer, where you can list and find work-items via different
@@ -78,7 +70,7 @@ can see the work-item and all the discussion about it. Oftentimes I
 can use the body and title of the work-item as commit-message and if
 not, I tend to have drafted something in the personal notes section
 that would suffice. I've found that writing such commit-messages
-upfront, helps me keep each commit focused.
+upfront, helps me keep each commit more focused.
 
 * Contributing
 
