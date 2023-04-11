@@ -4,7 +4,7 @@
 ;; Version: 2022.07.15
 ;; URL: https://github.com/hkjels/azure.el
 ;; Keywords: tools, azure
-;; Package-Requires: ((emacs "26.2") (async-await "1.1") (request "0.3.3") (a "1.0.0") (s "1.12.0"))
+;; Package-Requires: ((emacs "28.1") (async-await "1.1") (request "0.3.3") (a "1.0.0") (dash "2.19.1") (s "1.12.0"))
 
 ;; Copyright (C) 2023 Henrik Kjerringvåg 
 ;; 
@@ -22,10 +22,10 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-;; The purpose of this package from the onset, is to cover my day to day
-;; needs when dealing with Azure. That means; finding tasks, changing
-;; their status, comment, create new tasks and record work. So for now,
-;; just the DevOps part of Azure will be supported.
+;; Interface for working with Azure's API's. There are no plans on my
+;; behalf of supporting all the features of Azure, but rather serve my
+;; day to day needs. Feel free to create PR's and issues for missing
+;; functionality.
 
 
 
@@ -34,6 +34,7 @@
 (require 'plstore)
 (require 'request)
 (require 'json)
+(require 'dash)
 (require 'a)
 (require 's)
 
@@ -97,6 +98,9 @@
   :group 'azure
   :type 'directory)
 
+(defvar azure--user nil
+  "The user that is currently logged in.")
+
 (defvar azure--projects '()
   "List of projects.")
 
@@ -118,6 +122,11 @@
 (defvar azure--state nil
   "Work-item states currently used for filtering.")
 
+(defcustom azure-pandoc-executable "pandoc"
+  "The CLI used to convert to and from org-mode."
+  :group 'azure
+  :type 'string)
+
 (defcustom azure-organization nil
   "The name of the Azure DevOps organization."
   :group 'azure
@@ -133,61 +142,8 @@
   :group 'azure
   :type 'string)
 
-(defcustom azure-search-latest-atop t
-  "Wether to order the search-results with the latest entry first or last."
-  :group 'azure
-  :type 'boolean)
-
-(defcustom azure-discussion-latest-atop nil
-  "Wether to order the thread of discussion with the latest comment first or last."
-  :group 'azure
-  :type 'boolean)
-
-(defcustom azure-search-show-header t
-  "Wether to show or hide the header in the search-results buffer."
-  :group 'azure
-  :type 'boolean)
-
-(defcustom azure-search-results-max 200
-  "Maximum number of results returned when searching for work-items.
-   Note that <b>200</b> is the maximum supported by Azure's API."
-  :group 'azure
-  :type 'natnum)
-
-(defcustom azure-search-buffer "*azure searching %P*"
-  "Name of the buffer used to display search results.
-
-   Note that you can add certain properties via formatting specifiers:
-       %O - Organization
-       %P - Project
-       %T - Team"
-  :group 'azure
-  :type 'string)
-
-(defcustom azure-item-buffer "*azure - %t*"
-  "Name of the buffer used to display a work-item.
-
-   Note that you can add certain properties via formatting specifiers:
-       %O - Organization
-       %P - Project
-       %T - Team
-       %t - Item title
-       %a - Item assignee"
-  :group 'azure
-  :type 'string)
-
 (defcustom azure-debug nil
   "Wether to output debug-information. Only relevant to contributors.")
-
-(defvar azure-mapping-states '(("New" . "")
-                               ("To Do" . "")
-                               ("Active" . "TODO")
-                               ("Doing" . "TODO")
-                               ("Done" . "DONE")
-                               ("Resolved" . "DONE")
-                               ("Closed" . "DONE")
-                               ("Removed" . "REMOVED"))
-  "Align work-item states with TODO-states of org-mode.")
 
 (defconst azure-api-version "6.0"
   "Fallback version of the Azure-API to use if api-version is not
@@ -197,12 +153,6 @@
   "https://dev.azure.com/{organization}/{project}/{team}/_apis/{api}"
   "Base-URL of the Azure API. Note that the API spans multiple hosts,
   but this is the most common one.")
-
-
-
-;; I'm an ~evil~ user, so for the time being, there are some evil-bindings
-;; defined here. If this package starts being used by others, those
-;; bindings should likely be contributed into ~evil-collection~ instead.
 
 (defcustom azure-use-menu t
   "Show a dedicated menu for Azure in the menu-bar."
@@ -218,9 +168,6 @@
 (defvar azure-minor-mode-hook nil
   "Hook that's run when `azure-minor-mode` is turned on.")
 
-(defvar azure-search-mode-hook nil
-  "Hook that's run when `azure-search-mode` is turned on.")
-
 (defvar azure-minor-mode-menu
   (let ((map (make-sparse-keymap)))
     map)
@@ -230,21 +177,6 @@
   (let ((map (make-sparse-keymap)))
     map)
   "Keymap used when `azure-minor-mode` is turned on.")
-
-(defvar azure-search-mode-map
-  (let ((map (make-sparse-keymap)))
-    (suppress-keymap map)
-    (define-key map (kbd "RET") 'azure-work-item)
-    (with-eval-after-load 'evil
-      (evil-define-key 'normal map
-        (kbd "RET") 'azure-work-item))
-    map)
-  "Keymap used with the work-item search.")
-
-(defvar azure-work-item-menu
-  (let ((map (make-sparse-keymap)))
-    map)
-  "Keymap used when visiting a work-item.")
 
 (easy-menu-define azure-minor-mode-menu
   azure-minor-mode-map
@@ -256,11 +188,11 @@
      :visible (not (azure--valid-p))
      :help "Setup azure.el for first-time use."]
     "----"
-    ["Search for work-item" azure-search-mode
+    ["Search for work-item" azure-devops-search
      :help "List and search for work-items."]
-    ["Show work-item" azure-work-item
+    ["Show work-item" azure-devops-work-item
      :help "Quickly find and show a specific work-item."]
-    ["Create work-item" azure-work-item-create
+    ["Create work-item" azure-devops-work-item-create
      :help "Create a new work-item."]))
 
 (defcustom azure-log-buffer "*azure-log*"
@@ -273,17 +205,21 @@
   :group 'azure
   :type 'string)
 
-(defun azure-log (context &rest args)
-  "Like `message`, but will only output when `azure-debug` is not `nil`."
-  (when azure-debug
-    (with-current-buffer (get-buffer-create azure-log-buffer)
-      (read-only-mode -1)
-      (goto-char (point-min))
-      (insert (format "%s %s: %s\n"
-                      (format-time-string azure-log-time-format (current-time))
-                      context
-                      (apply 'format args)))
-      (read-only-mode 1))))
+(defun azure-log (context &rest messages)
+  "Log to a dedicated buffer set by `azure-log-buffer` when `azure-debug` is not `nil`.
+   CONTEXT should be a string that lets you know where the message occurred.
+   MESSAGES is what you want to log."
+  (let ((trace (backtrace-get-frames 'azure-log)))
+    (message trace)
+    (when azure-debug
+      (with-current-buffer (get-buffer-create azure-log-buffer)
+        (read-only-mode -1)
+        (goto-char (point-min))
+        (insert (format "%s %s: %s\n"
+                        (format-time-string azure-log-time-format (current-time))
+                        context
+                        (apply 'format messages)))
+        (read-only-mode 1)))))
 
 (defun azure-req (method api success &optional params data headers)
   "Make a request to the Azure API and return it to the passed in SUCCESS-handler.
@@ -341,17 +277,39 @@
   "POST a resource and return the result to the success-handler."
   (azure-req "POST" api success params data headers))
 
+
+
+;; These helper-functions are why we rely on =pandoc=. We convert to and
+;; from HTML and org-mode, so that we can work in regular text-documents.
+
 (defun azure--html-to-org (html)
   "Convert an HTML string into org-mode string."
+  (unless (executable-find azure-pandoc-executable)
+    (error "The pandoc executable was not found on your PATH. It is a pre-requisite to azure.el."))
   (->> (shell-command-to-string (concat "echo \"" html "\" | pandoc -f html -t org"))
        (s-chop-left 2)
        (s-chop-right 2)))
 
 (defun azure--org-to-html (org)
   "Convert org-mode string into HTML string."
+  (unless (executable-find azure-pandoc-executable)
+    (error "The pandoc executable was not found on your PATH. It is a pre-requisite to azure.el."))
   (format "%s"
-   (shell-command-to-string
-    (concat "echo \"" org "\" | pandoc -f org -t html"))))
+          (shell-command-to-string
+           (concat "echo \"" org "\" | pandoc -f org -t html"))))
+
+(defun azure-get-current-user ()
+  "Get information about the currently logged in user."
+  (promise-new
+   (lambda (resolve _reject)
+     (let ((url "https://dev.azure.com/{organization}/_apis/connectiondata"))
+       (azure-get url
+                  (cl-function
+                   (lambda (&key data &allow-other-keys)
+                     (let ((this-command "azure-get-user"))
+                       (progn (azure-log this-command "Logged in user: %S" data)
+                              (funcall resolve (assoc :data data))))))
+                  '(("api-version" . "7.0-preview")))))))
 
 (defun azure-select-project ()
   "Select a project from a list of all the projects in the
@@ -405,398 +363,6 @@
                        (funcall resolve team))))
                   '(("api-version" . "7.1-preview.3")))))))
 
-(defface azure-item-id '((t :inherit shadow))
-  "Face used with a work-items id.")
-
-(defface azure-item-title '((t :inherit default))
-  "Face used with a work-items title.")
-
-(defface azure-item-state '((t :inherit bold))
-  "Face used with a work-items state.")
-
-(defface azure-item-tags '((t :inherit italic))
-  "Face used with a work-items tags.")
-
-(defun azure--test-output ()
-  (azure-log this-command "Test output"))
-
-(defun azure--define-mouse-key (command)
-  "Defines a mouse-action to be used with the head-line widgets."
-  (let ((map (make-sparse-keymap)))
-    (define-key map [header-line mouse-2]
-                (lambda (click)
-                  (interactive "e")
-                  (mouse-select-window click)
-                  (call-interactively command)))
-    map))
-
-(defun azure--search-header-board ()
-  "Tap the board-name in the header-line to change it."
-  (let ((map (azure--define-mouse-key 'azure--test-output)))
-    `(:propertize ,(truncate-string-to-width (format " Board: %s " azure--board) 100 nil 32 "…")
-                  mouse-face header-line-highlight
-                  help-echo "Change board"
-                  keymap ,map)))
-
-(defun azure--search-header-assignee ()
-  "Tap the assignee-name in the header-line to change it."
-  (let ((map (azure--define-mouse-key 'azure--test-output)))
-    `(:propertize ,(truncate-string-to-width (format " Assignee: %s " azure--assignee) 100 nil 32 "…")
-                  mouse-face header-line-highlight
-                  help-echo "Change assignee"
-                  keymap ,map)))
-
-(defun azure--search-header-state ()
-  "Tap the state-name in the header-line to change it."
-  (let ((map (azure--define-mouse-key 'azure--test-output)))
-    `(:propertize ,(truncate-string-to-width (format " State: %s " azure--state) 100 nil 32 "…")
-                  mouse-face header-line-highlight
-                  help-echo "Change state"
-                  keymap ,map)))
-
-(defun azure--search-header-line ()
-  "Header-line used with the search-buffer to enable various filtering."
-  (let ((space "\t\t"))
-    (setq-local
-     header-line-format
-     (list
-      (azure--search-header-board) space
-      (azure--search-header-assignee) space
-      (azure--search-header-state)))))
-
-(defun azure-search-selected-id ()
-  (let ((line (buffer-substring-no-properties
-               (line-beginning-position)
-               (line-end-position))))
-    (->> (s-collapse-whitespace line)
-         (s-match "^[^0-9]+\\([0-9]+\\)" )
-         (cl-first)
-         (s-trim)
-         (string-to-number))))
-
-(defun azure--search (&optional text assignee status)
-  "Query azure's API for work-items.
-
-   See URL 'https://docs.microsoft.com/en-us/rest/api/azure/devops/search/work-item-search-results/fetch-work-item-search-results'
-   for more information."
-  (let ((url "https://almsearch.dev.azure.com/{organization}/{project}/_apis/search/workitemsearchresults")
-        (top (math-min (math-max 0 azure-search-results-max) 200)))
-    (azure-post url
-                (cl-function
-                 (lambda (&key data &allow-other-keys)
-                   (let* ((work-items (mapcar
-                                       (lambda (item)
-                                         (mapcar 'cdr (cdr (assoc 'fields item))))
-                                       (cdr (assoc 'results data))))
-                          (work-items (sort work-items
-                                            (lambda (a b)
-                                              (not (s-less? (nth 7 a) (nth 7 b)))))))
-                     (setq azure--work-items (if azure-search-latest-atop work-items (reverse work-items)))
-                     (azure--update-search-buffer))))
-                `(("searchText" . ,(or text "NOT null"))
-                  ("$orderBy" . ((("field" . "system.id") 
-                                  ("sortOrder" . "DESC"))))
-                  ("$skip" . "0")
-                  ("$top" . ,top)
-                  ("includeFacets" . "true"))
-                '(("api-version" . "7.1-preview.1")))))
-
-
-
-;; - [ ] Make sure font-locking only spans one line at a time
-;; - [ ] Color read items differently
-;; - [ ] Use mode-menu in mode-line
-;; - [ ] Add item-type icon (bug, user-story, etc)
-;; - [ ] Replace tags using svg-lib
-;; - [ ] Replace states using svg-lib and colors
-;; - [ ] Apply a fringe indicator if an item was updated after viewing it
-;; - [ ] Use transient to enable more powerful search/filtering etc
-
-;; When doing a search (~azure-search~), we validate the configuration
-;; first via ~azure-init~.  The rest is handled interactively from inside
-;; the search results buffer.
-
-(defun azure--buffer-name (buffer-name)
-  "Get the formatted/compiled BUFFER-NAME."
-  (s-replace-all `(("%O" . ,azure-organization)
-                   ("%P" . ,azure-project)
-                   ("%T" . ,azure-team))
-                 buffer-name))
-
-(defvar azure--work-items '()
-  "Work-items currently being listed.")
-
-(defun azure-search-selected ()
-  "Return the currently selected work-item from the search results list."
-  (let* ((item-num (- (line-number-at-pos (point)) 1))
-         (work-item (nth item-num azure--work-items)))
-    work-item))
-
-(defun azure--setup-search-buffer ()
-  "Setup of the buffer that holds our search-results.
-\\{azure-search-mode-map}"
-  (let ((buf (get-buffer-create (azure--buffer-name azure-search-buffer))))
-    (switch-to-buffer buf)
-    (kill-all-local-variables)
-    (hack-dir-local-variables)
-    (hack-local-variables-apply)
-    (setq-local major-mode 'azure-search-mode
-                mode-name "azure-search"
-                font-lock-defaults '(nil))
-    (use-local-map azure-search-mode-map)
-    (read-only-mode)
-    (hl-line-mode)
-    (buffer-disable-undo)
-    (when azure-search-show-header
-      (azure--search-header-line))))
-
-(defun azure--update-search-buffer ()
-  "Update the search-buffer with WORK-ITEMS."
-  (let ((buf (get-buffer (azure--buffer-name azure-search-buffer)))
-        (map (azure--define-mouse-key
-              (lambda ()
-                (let* ((work-item (azure-search-selected))
-                       (id (cdr (assoc 'id work-item))))
-                  (azure-work-item id)))))
-        (this-command "azure--update-search-buffer"))
-    (azure-log this-command "Work items: %S" azure--work-items)
-    (with-current-buffer buf
-      (setq inhibit-read-only t)
-      (erase-buffer)
-      (goto-char (point-min))
-      (mapcar
-       (lambda (item)
-         (pcase-let
-             ((`(,id ,type ,title ,assignee ,state ,tags ,_ ,created ,changed) item))
-           (let* ((width (- (window-width) 30 (string-width "\t\t\t\t")))
-                  (fmt (concat "%." (format "%d" width) "s"))
-                  (title (truncate-string-to-width (s-collapse-whitespace title) width nil 32 "…")))
-             (insert (format "\t%s\t%s\t%s\t%s\n" 
-                             (propertize id 'face 'azure-item-id)
-                             (propertize state 'face 'azure-item-state)
-                             (propertize title 'face 'azure-item-title 'keymap map)
-                             (propertize (if (s-blank? tags) "" (format "(%s)" tags)) 'face 'azure-item-tags))))))
-       azure--work-items)
-      (setq inhibit-read-only nil))))
-
-(defun azure-search-mode (&optional query board assignee state)
-  "Major-mode to search for work-items.
-\\{azure-search-mode-map}"
-  (interactive)
-  (if (azure--valid-p)
-      (progn
-        (azure--setup-search-buffer)
-        (azure--search query assignee state)
-        (azure-minor-mode +1)
-        (add-hook 'window-configuration-change-hook 'azure--update-search-buffer nil 'local)
-        (run-mode-hooks 'azure-search-mode-hook))
-    (user-error "You need to run `azure-init` first!")))
-
-(defun azure--comments (id)
-  ""
-  (promise-new
-   (lambda (resolve _reject)
-     (let ((url (format "https://dev.azure.com/{organization}/{project}/_apis/wit/workItems/%d/comments" id)))
-       (azure-get url
-                  (cl-function
-                   (lambda (&key data &allow-other-keys)
-                     (let ((comments (cdr (assoc 'comments data)))
-                           (this-command "azure--comments"))
-                       (funcall resolve comments)
-                       (azure-log this-command "%S" comments))))
-                  '(("api-version" . "7.1-preview.3")))))))
-
-(defun azure--item-buffer (title assignee)
-  "Returns the compiled name of a work-item buffer."
-  (s-replace-all `(("%O" . ,azure-organization)
-                   ("%P" . ,azure-project)
-                   ("%T" . ,azure-team)
-                   ("%t" . ,title)
-                   ("%a" . ,assignee))
-                 azure-item-buffer))
-
-
-
-;; - [ ] Add shortcut to open the web-version
-;; - [ ] Enable editing
-;; - [ ] Make sure links can be followed
-;; - [ ] Create a preview-version that uses view-mode
-
-
-(defun azure-work-item-file (id)
-  "Expanded file-path of the work-item prefixed with ID."
-  (car
-   (file-expand-wildcards
-    (expand-file-name (format "%d-*.org" id) azure-cache-directory))))
-
-(defun azure--create-or-flush-work-item-buffer (id)
-  "Open the file associated with the work-item with ID and update it's content.
-
-   If a file does not exist, a new one will be created."
-  (promise-new
-   (lambda (resolve _reject)
-     (let ((logbook-p nil)
-           (check-point (point-min))
-           (this-command "azure--create-or-flush-work-item-buffer"))
-       (when (eq (azure-work-item-file id) nil)
-         (let* ((new-name (format "%d-Not-yet-updated.org" id))
-                (buf (generate-new-buffer new-name)))
-           (azure-log this-command "Creating a new work-item file named: %S" new-name)
-           (save-excursion
-             (with-current-buffer buf
-               (org-mode)
-               (insert "\n\n* Personal Notes\n")
-               (write-file (expand-file-name new-name azure-cache-directory))))))
-       (azure-log this-command "Open file on disk, regardless if it’s new or old")
-       (find-file (azure-work-item-file id))
-       (with-current-buffer (current-buffer)
-         (goto-char check-point)
-         (save-excursion
-           (while (re-search-forward ":logbook:" nil 'noerror)
-             (azure-log this-command "Logbook entry exists, delete everything before the entry")
-             (delete-region (point) (match-beginning 0))
-             (setq logbook-p t)))
-         (when logbook-p
-           (azure-log this-command "Move pointer to after the logbook entry")
-           (while (re-search-forward ":logbook:.+:end:" nil)
-             (setq-local check-point (match-end 0))
-             (goto-char check-point)))
-         (save-excursion
-          (while (re-search-forward "* Personal Notes" nil 'noerror)
-            (when (length> (buffer-substring-no-properties check-point (- (match-beginning 0) 1)) 1)
-              (azure-log this-command "Delete everything from the pointer (line %d) to the personal notes section (line %d)"
-                         (line-number-at-pos check-point)
-                         (line-number-at-pos (- (match-beginning 0) 1)))
-              (delete-region check-point (- (match-beginning 0) 1)))))
-         (azure-log this-command "Return the work-item buffer: %S" (buffer-name (current-buffer)))
-         (funcall resolve (buffer-name (current-buffer))))))))
-
-(defun azure--work-item-properties (work-item)
-  ""
-  (let* ((fields (cdr (assoc 'fields work-item)))
-         (id (cdr (assoc 'id work-item)))
-         (rev (cdr (assoc 'rev work-item)))
-         (state (cdr (assoc 'System.State fields)))
-         (created (cdr (assoc 'System.CreatedDate fields)))
-         (by (cdr (assoc 'displayName
-                         (cdr (assoc 'System.CreatedBy fields))))))
-    (azure-log this-command "Adding properties for: %d" id)
-    (format ":properties:\n:id: %d\n:rev: %d\n:state: %s\n:created: %s\n:created-by: %s\n:end:\n" id rev state created by)))
-
-(defun azure--work-item-title (work-item)
-  ""
-  (let* ((fields (cdr (assoc 'fields work-item)))
-         (state (s-trim (cdr (assoc (cdr (assoc 'System.State fields)) azure-mapping-states))))
-         (title (cdr (assoc 'System.Title fields))))
-    (azure-log this-command "Adding title: %s" title)
-    (format "* %s%s\n" (if (s-blank? state) "" (concat state " ")) title)))
-
-(defun azure--work-item-content (work-item)
-  ""
-  (let* ((fields (cdr (assoc 'fields work-item)))
-         (description (cdr (assoc 'System.Description fields))))
-    (azure-log this-command "Adding description: %s" description)
-    (azure--html-to-org description)))
-
-(defun azure--work-item-comments (comments)
-  ""
-  (let ((comments (if azure-discussion-latest-atop comments (reverse comments)))
-        (template (s-join "\n" [":properties:"
-                                ":id: %d"
-                                ":created: %s"
-                                ":created-by: %s"
-                                ":end:"
-                                "%s"
-                                ""])))
-    (azure-log this-command "Discussion (%d): %S" (length comments) comments)
-    (format "\n\n* Discussion (%d)\n\n%s" (length comments) 
-            (s-join "\n" (mapcar
-                          (lambda (comment)
-                            (let ((id (cdr (assoc 'id comment)))
-                                  (text (s-trim (azure--html-to-org (cdr (assoc 'text comment)))))
-                                  (by (cdr (assoc 'displayName (cdr (assoc 'createdBy comment)))))
-                                  (created (cdr (assoc 'createdDate comment))))
-                              (format template id created by text)))
-                          comments)))))
-
-(async-defun azure--update-work-item-buffer (id)  
-  "Update the work-item buffer.
-
-   We retrieve all the information needed first and if that succeeds,
-   we replace everything in our local copy of the issue with what we
-   retrieved. Only clocking and personal notes are persisted from the
-   local copy."
-  (let* ((work-item (await (azure--work-item-get id)))
-         (comments (await (azure--comments id)))
-         (buf (await (azure--create-or-flush-work-item-buffer id)))
-         (fields (cdr (assoc 'fields work-item)))
-         (filename (format "%s.org" (s-dashed-words (cdr (assoc 'System.Title fields)))))
-         (logbook-p nil)
-         (this-command "azure--update-work-item-buffer"))
-    (with-current-buffer buf
-      (goto-char (point-min))
-      (insert (azure--work-item-properties work-item))
-      (insert (azure--work-item-title work-item))
-      (save-excursion
-        (while (re-search-forward ":logbook:" nil 'noerror)
-          (azure-log this-command "Logbook entry was found!")
-          (setq logbook-p t)))
-      (when logbook-p
-        (while (re-search-forward ":end:" nil)
-          (azure-log this-command "Logbook entry was closed!")
-          (goto-char (match-end 0))))
-      (insert (azure--work-item-content work-item))
-      (insert (azure--work-item-comments comments))
-      (save-buffer)
-      (azure-log this-command "Rename file: %s -> %s" (format "%d-Not-yet-updated" id) (format "%d-%s" id filename))
-      (rename-visited-file (format "%d-%s" id filename))
-      (message "Work item was updated!"))))
-
-(defun azure-work-item (id)
-  "Show the work-item with ID in a buffer of it's own.
-
-  See URL 'https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/get-work-item'
-  for more information."
-  (interactive (list (azure-search-selected-id)))
-  (azure-log this-command "Show work-item with id: %S" id)
-  (funcall 'azure--update-work-item-buffer id))
-
-(defun azure-work-item-create (item-type title)
-  "Create a new work-item by specifying ITEM-TYPE and TITLE.
-
-   See URL 'https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/create'
-   for more information."
-  (interactive (list (completing-read "Item type: " '("Epic" "Issue" "Task"))
-                     (read-from-minibuffer "Item title: ")))
-  (let ((url (concat "https://dev.azure.com/{organization}/{project}/_apis/wit/workitems/$" item-type))
-        (title (format "%s" title)))
-    (azure-post url
-                (cl-function
-                 (lambda (&key data &allow-other-keys)
-                   (azure-work-item (cdr (assoc 'id data)))))
-                `((("op" . "add")
-                   ("path" . "/fields/System.title")
-                   ("from" . nil)
-                   ("value" . ,title)))
-                '(("api-version" . "7.1-preview.3"))
-                '(("Content-Type" . "application/json-patch+json")))))
-
-(defun azure--work-item-get (id)
-  "Get all the relevant information about a work-item by it's ID.
-
-  See URL 'https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/get-work-item'
-  for more information."
-  (promise-new
-   (lambda (resolve _reject)
-     (azure-get (format "https://dev.azure.com/{organization}/{project}/_apis/wit/workitems/%d" id)
-                (cl-function
-                 (lambda (&key data &allow-other-keys)
-                   (let ((this-command "azure--work-item-get"))
-                    (progn (azure-log this-command "Work item: %S" data)
-                           (funcall resolve data)))))
-                '(("$expand" . "All")
-                  ("api-version" . "7.1-preview.3"))))))
-
 
 
 ;; In order to use Azure's API, we need to set the required fields to
@@ -820,6 +386,13 @@
       (add-dir-local-variable nil 'azure-team azure-team)
       (save-buffer))))
 
+(async-defun azure--set-user ()
+  "Cache the currently logged in user."
+  (when (eq azure--user nil)
+    (let ((user (await (azure-get-current-user))))
+      (azure-log this-command "Logged in as: %S" user)
+      (setq-default azure--user user))))
+
 (async-defun azure-init ()
   "Set required fields and add our cache-directory to the org-agenda.
 
@@ -834,6 +407,7 @@
   (when (eq azure-team nil)
     (await (azure-select-team)))
   (azure--save-dir-locals)
+  (azure--set-user)
   (make-directory azure-cache-directory 'make-parents)
   (add-to-list 'org-agenda-files azure-cache-directory))
 

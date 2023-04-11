@@ -24,7 +24,7 @@ is prefixed with an additional semi-colon and run linting of the final output.
 #+begin_src emacs-lisp :results none
 (defun package-post-tangle-hook ()
   "Post-process and lint the final output."
-  (when (equal (file-name-base (buffer-file-name (current-buffer))) "azure")
+  (when (s-prefix? "azure" (file-name-base (buffer-file-name (current-buffer))))
     (with-current-buffer (current-buffer)
       (goto-char (point-min))
       (insert ";; -*- coding: utf-8; lexical-binding: t; -*-\n")
