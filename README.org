@@ -7,16 +7,17 @@
 
 * Installation
 
-Package-installation can be done in many ways in Emacs. I've found
-[[https://github.com/radian-software/straight.el][straight.el]] with the ~use-package~ macro to suit my needs quite well.
-Below you can see how I install ~azure.el~ using ~straight~.
 #+begin_src emacs-lisp
 (use-package azure
-  :ensure-system-package pandoc
   :config
   (let ((token-file (expand-file-name "~/.azure.plstore")))
     (setq azure-access-token-file token-file
-          azure-organization "your-organization")))
+          azure-organization "your-organization")
+    (add-to-list 'org-agenda-files (expand-file-name azure-cache-directory))
+    (azure-minor-mode 1)))
+
+(use-package azure-devops
+  :after azure)
 #+end_src
 
 * Usage
@@ -31,34 +32,35 @@ new token.
 
 vso.work_write
 
-** azure-search-mode
+** azure-devops-search
 
 This is the main entry-point when using azure.el. It brings up a
 search-buffer, where you can list and find work-items via different
 criteria. Wether you are assigned to the work-item, wether it is in
 progress etc. Clicking an item, brings up a buffer of the work-item at
-point, essentially running ~azure-show-work-item~
+point.
 
-** azure-work-item
+** azure-devops-work-item
 
-Shows an org-mode representation of a work-item. Typically, this is
-run when clicking a work-item from a search-buffer, but you could also
-quickly find a work-item by searching for it in the mini-buffer by
-name or exact id. In addition to the properties available in Azure's
-UI; like comments, effort etc. Azure.el supports personal notes. These
-are notes that are not part of the synchronization that happens upon
-save and thus can only be viewed from your local machine. As briefly
-mentioned, the work-item is updated upon save. This is a synchronous
-event where the task-issue will be reified with whatever is on the
-server. That means that upon save, the file you just saved will be
-updated with the "truth" from the server and some UI-jumps are to be
-expected.
+The work-item buffer is an org-mode buffer, so you can edit it as
+usual and clock-in to the task etc.  Typically, this is run when
+clicking a work-item from a search-buffer, but you could also quickly
+find a work-item by searching for it in the mini-buffer by name or
+exact id. In addition to the properties available in Azure's UI; like
+comments, effort etc. there's an additional section for personal
+notes. These are notes that are not part of the synchronization that
+happens upon save and thus can only be viewed from your local
+machine. As briefly mentioned, the work-item is updated upon
+save. This is a synchronous event where the task-issue will be reified
+with whatever is on the server. That means that upon save, the file
+you just saved will be updated with the "truth" from the server. Note
+that some UI-jumps are to be expected in this situation.
 
-** azure-work-item-create
+** azure-devops-work-item-create
 
 With this command, you will be prompted to input a title. Once a title
 is supplied, a work-item is created on the server and the new item is
-visited via ~azure-show-item~. At this point, it's just about editing
+visited via ~azure-devops-work-item~. At this point, it's just about editing
 and saving the changes.
 
 ** Working with org-mode & git

@@ -1,12 +1,11 @@
-;; -*- coding: utf-8; lexical-binding: t; -*-
-
+;;; azure.el --- Interact with Azure from the comfort of your favorite editor -*- coding: utf-8; lexical-binding: t; -*-
 ;; Author: Henrik Kjerringvåg <henrik@kjerringvag.no>
 ;; Version: 2022.07.15
 ;; URL: https://github.com/hkjels/azure.el
 ;; Keywords: tools, azure
 ;; Package-Requires: ((emacs "28.1") (async-await "1.1") (request "0.3.3") (a "1.0.0") (dash "2.19.1") (s "1.12.0"))
 
-;; Copyright (C) 2023 Henrik Kjerringvåg 
+;; Copyright (C) 2024 Henrik Kjerringvåg
 ;; 
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -21,13 +20,15 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
-;; Interface for working with Azure's API's. There are no plans on my
+;;; Commentary:
+;;; Interface for working with Azure's API's. There are no plans on my
 ;; behalf of supporting all the features of Azure, but rather serve my
-;; day to day needs. Feel free to create PR's and issues for missing
+;; day to day needs.  Feel free to create PR's and issues for missing
 ;; functionality.
 
 
+
+;;; Code:
 
 (require 'async-await)
 (require 'easymenu)
@@ -45,7 +46,36 @@
   :group 'azure
   :group 'tools)
 
+;; Logging
 
+
+(defcustom azure-log-buffer "*azure-log*"
+  "Name of the buffer to output debugging information."
+  :group 'azure
+  :type 'string)
+
+(defcustom azure-log-time-format "%H:%M:%S"
+  "Format of the prepended timestamp of each logged line."
+  :group 'azure
+  :type 'string)
+
+(defun azure-log (context &rest messages)
+  "Log to `azure-log-buffer` when `azure-debug` is not `nil`.
+CONTEXT should be a string that lets you know where the message occurred.
+MESSAGES is what you want to log."
+  (let ((trace (backtrace-get-frames 'azure-log)))
+    ;; (message (mapconcat #'identity trace "\n"))
+    (when azure-debug
+      (with-current-buffer (get-buffer-create azure-log-buffer)
+        (read-only-mode -1)
+        (goto-char (point-min))
+        (insert (format "%s %s: %s\n"
+                        (format-time-string azure-log-time-format (current-time))
+                        context
+                        (apply 'format messages)))
+        (read-only-mode 1)))))
+
+;; Token
 
 ;; To access the Azure API, you'll need to provide a personal
 ;; access-token. You'll be prompted for the token upon using ~azure.el~ the
@@ -62,11 +92,11 @@
 
 
 
-;; This is where we store and access the said token. 
+;; This is where we store and access the said token.
 
 (defun azure-access-token ()
-  "Returns access-token stored on disk or asks for token if not found.
-   In either case, the access-token will be returned base64-encoded."
+  "Return access-token stored on disk or asks for token if not found.
+In either case, the access-token will be returned base64-encoded."
   (base64-encode-string
    (concat ":"
            (let ((azure-access-token-file (expand-file-name azure-access-token-file))
@@ -84,17 +114,15 @@
                  (plstore-close store)
                  token))))))
 
-
+;; Caching
 
 ;; Some parts of ones Azure-setup rarely change, so we do some
 ;; rudimentary caching to save a few requests. We also keep
 ;; search-filters for the life of a session.
 
 (defcustom azure-cache-directory (concat user-emacs-directory "azure")
-  "Directory used for caching. We need files on disk for clocking and
-  the org-agenda to work as intended.
-  Note that if you change this directory, you'll need to re-run
-  azure-init in order for the agenda to update."
+  "Directory used to save various cache.
+Note that if you change this directory, you'll need to re-run azure-init."
   :group 'azure
   :type 'directory)
 
@@ -107,23 +135,38 @@
 (defvar azure--teams '()
   "List of teams.")
 
-(defvar azure--boards '()
-  "List of boards.")
+(defvar azure--keywords nil
+  "Keywords currently used for filtering.")
 
-(defvar azure--query nil
-  "Query currently used for filtering.")
+(defvar azure--available-types nil
+  "List of available work item types.")
 
-(defvar azure--board nil
-  "Board currently used for filtering.")
+(defvar azure--types nil
+  "Work item types currently used for filtering.")
 
-(defvar azure--assignee nil
-  "Assignee currently used for filtering.")
+(defvar azure--available-team-members nil
+  "List of available team members.")
+
+(defvar azure--assignees nil
+  "Assignees currently used for filtering.")
 
 (defvar azure--state nil
   "Work-item states currently used for filtering.")
 
+(defvar azure--area nil
+  "Work-item areas currently used for filtering.")
+
+(defvar azure--iteration nil
+  "Work-item iterations currently used for filtering.")
+
+(defvar azure--tags nil
+  "Work-item tags currently used for filtering.")
+
+;; Required information
+
+
 (defcustom azure-pandoc-executable "pandoc"
-  "The CLI used to convert to and from org-mode."
+  "The CLI used to convert to and from `org-mode`."
   :group 'azure
   :type 'string)
 
@@ -143,16 +186,21 @@
   :type 'string)
 
 (defcustom azure-debug nil
-  "Wether to output debug-information. Only relevant to contributors.")
+  "Wether to output debug-information.  Only relevant to contributors.")
 
 (defconst azure-api-version "6.0"
-  "Fallback version of the Azure-API to use if api-version is not
-  set per request.")
+  "Fallback version of the Azure-API to use if not set per request.")
 
 (defconst azure-url
   "https://dev.azure.com/{organization}/{project}/{team}/_apis/{api}"
-  "Base-URL of the Azure API. Note that the API spans multiple hosts,
-  but this is the most common one.")
+  "Base-URL of the Azure API.
+Note that the API spans multiple hosts; this is just the most common one.")
+
+;; Menus and bindings
+
+
+(defvar azure-prefix-key "C-c a"
+  "Prefix key for Azure commands.")
 
 (defcustom azure-use-menu t
   "Show a dedicated menu for Azure in the menu-bar."
@@ -187,7 +235,8 @@
     ["Initialize" azure-init
      :visible (not (azure--valid-p))
      :help "Setup azure.el for first-time use."]
-    "----"
+    ["----"
+     :visible (not (azure--valid-p))]
     ["Search for work-item" azure-devops-search
      :help "List and search for work-items."]
     ["Show work-item" azure-devops-work-item
@@ -195,71 +244,52 @@
     ["Create work-item" azure-devops-work-item-create
      :help "Create a new work-item."]))
 
-(defcustom azure-log-buffer "*azure-log*"
-  "Name of the buffer to output debugging information."
-  :group 'azure
-  :type 'string)
+;; Request handling
 
-(defcustom azure-log-time-format "%H:%M:%S"
-  "Format of the prepended timestamp of each logged line."
-  :group 'azure
-  :type 'string)
-
-(defun azure-log (context &rest messages)
-  "Log to a dedicated buffer set by `azure-log-buffer` when `azure-debug` is not `nil`.
-   CONTEXT should be a string that lets you know where the message occurred.
-   MESSAGES is what you want to log."
-  (let ((trace (backtrace-get-frames 'azure-log)))
-    (message trace)
-    (when azure-debug
-      (with-current-buffer (get-buffer-create azure-log-buffer)
-        (read-only-mode -1)
-        (goto-char (point-min))
-        (insert (format "%s %s: %s\n"
-                        (format-time-string azure-log-time-format (current-time))
-                        context
-                        (apply 'format messages)))
-        (read-only-mode 1)))))
 
 (defun azure-req (method api success &optional params data headers)
   "Make a request to the Azure API and return it to the passed in SUCCESS-handler.
-  <i>Note that instead of using this function directly, you should use
-  the helper-functions. `azure-get` etc.</i>
+<i>Note that instead of using this function directly, you should use
+the helper-functions.  `azure-get` etc.</i>
 
-  METHOD should be one of (GET, PUT, POST, PATCH)
+METHOD should be one of (GET, PUT, POST, PATCH)
 
-  API is the path to the resource in Azure's API or a full URL
+API is the path to the resource in Azure's API or a full URL
 
-  SUCCESS is the handler that gets the results of the request.
+SUCCESS is the handler that gets the results of the request.
 
-  Optionally, you can pass additional PARAMS, DATA & HEADERS.
-  <i>Note that DATA is treated as json.<i>
-  "
-  (let ((url (s-replace-all `(("{organization}" . ,azure-organization)
-                              ("{project}" . ,azure-project)
-                              ("{team}" . ,azure-team)
-                              ("{api}" . ,api))
-                            (if (s-starts-with? "https" api) api azure-url)))
-        (params (a-merge `(("api-version" . ,azure-api-version)) params))
-        (headers (a-merge `(("Authorization" . ,(concat "Basic " (azure-access-token)))
-                            ("Accepts" . "application/json")
-                            ("Content-Type" . "application/json")
-                            ("User-Agent" . "azure.el"))
-                          headers))
-        (this-command "azure-req"))
-    (azure-log this-command "Requested URL: %s" url)
-    (request (url-encode-url url)
-      :type (upcase method)
-      :data (json-encode data)
-      :params params
-      :parser 'json-read
-      :headers headers
-      :success success
-      :error (cl-function
-              (lambda (&rest args &key error-thrown &allow-other-keys)
-                (let ((this-command "azure-req-err"))
-                  (azure-log this-command "Arguments when error occurred:\n%s" args)
-                  (error "%s" error-thrown)))))))
+Optionally, you can pass additional PARAMS, DATA & HEADERS.
+<i>Note that DATA is treated as json.<i>"
+  (progn
+    (hack-dir-local-variables-non-file-buffer)
+    (azure-log this-command "Organization: %s" azure-organization)
+    (let ((url (s-replace-all `(("{organization}" . ,azure-organization)
+				("{project}" . ,azure-project)
+				("{team}" . ,azure-team)
+				("{api}" . ,api))
+                              (if (s-starts-with? "https" api) api azure-url)))
+          (params (a-merge `(("api-version" . ,azure-api-version)) params))
+          (headers (a-merge `(("Authorization" . ,(concat "Basic " (azure-access-token)))
+                              ("Accepts" . "application/json")
+                              ("Content-Type" . "application/json")
+                              ("User-Agent" . "azure.el"))
+                            headers))
+          (this-command "azure-req"))
+      (azure-log this-command "Request URL: %s" url)
+      (when params (azure-log this-command "Request params: %s" params))
+      (when data (azure-log this-command "Request data: %s" (json-encode data)))
+      (request (url-encode-url url)
+	:type (upcase method)
+	:data (json-encode data)
+	:params params
+	:parser 'json-read
+	:headers headers
+	:success success
+	:error (cl-function
+		(lambda (&rest args &key error-thrown &allow-other-keys)
+                  (let ((this-command "azure-req-err"))
+                    (azure-log this-command "Arguments when error occurred: %s" args)
+                    (error "%s" error-thrown))))))))
 
 (defun azure-get (api success &optional params)
   "GET a resource and return it to the success-handler."
@@ -277,26 +307,29 @@
   "POST a resource and return the result to the success-handler."
   (azure-req "POST" api success params data headers))
 
-
+;; Helper functions
 
 ;; These helper-functions are why we rely on =pandoc=. We convert to and
 ;; from HTML and org-mode, so that we can work in regular text-documents.
 
 (defun azure--html-to-org (html)
-  "Convert an HTML string into org-mode string."
+  "Convert an HTML string into `org-mode` string."
   (unless (executable-find azure-pandoc-executable)
-    (error "The pandoc executable was not found on your PATH. It is a pre-requisite to azure.el."))
+    (error "The pandoc executable was not found on your PATH.  It is a pre-requisite to azure.el"))
   (->> (shell-command-to-string (concat "echo \"" html "\" | pandoc -f html -t org"))
        (s-chop-left 2)
        (s-chop-right 2)))
 
 (defun azure--org-to-html (org)
-  "Convert org-mode string into HTML string."
+  "Convert ORG mode into `html` using `pandoc`."
   (unless (executable-find azure-pandoc-executable)
-    (error "The pandoc executable was not found on your PATH. It is a pre-requisite to azure.el."))
+    (error "The pandoc executable was not found on your PATH.  It is a pre-requisite to azure.el"))
   (format "%s"
           (shell-command-to-string
            (concat "echo \"" org "\" | pandoc -f org -t html"))))
+
+;; User
+
 
 (defun azure-get-current-user ()
   "Get information about the currently logged in user."
@@ -310,6 +343,9 @@
                        (progn (azure-log this-command "Logged in user: %S" data)
                               (funcall resolve (assoc :data data))))))
                   '(("api-version" . "7.0-preview")))))))
+
+;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/core/projects/list][Projects]]
+
 
 (defun azure-select-project ()
   "Select a project from a list of all the projects in the
@@ -333,12 +369,28 @@
                        (run-hooks 'azure-select-project-hook)
                        (funcall resolve project)))))))))
 
+;; [[https://docs.microsoft.com/en-us/rest/api/azure/devops/core/teams/get-all-teams][Teams]]
+
+
+(defun azure-devops--parse-team-members (data)
+  "Parse team member DATA."
+  (mapcar (lambda (item)
+            (let ((identity (cdr (assoc 'identity item))))
+              (cons (cdr (assoc 'displayName identity))
+                    (cdr (assoc 'imageUrl identity)))))
+          data))
+
 (defun azure--team-members (callback)
   "Get a list of members for a specific team and return it through a CALLBACK."
-  (azure-get "members/"
+
+  (azure-get "https://dev.azure.com/{organization}/_apis/projects/{project}/teams/{team}/members"
              (cl-function
               (lambda (&key data &allow-other-keys)
-                (callback (cdr (assoc 'value data)))))))
+                (let ((team-members (azure-devops--parse-team-members (cdr (assoc 'value data))))
+		      (this-command "azure-devops--team-members"))
+		  (funcall callback team-members)
+		  (azure-log this-command "%S" team-members))))
+	     '(("api-version" . "7.1-preview.2"))))
 
 (defun azure-select-team ()
   "Select a team from a list of all the teams in the
@@ -363,7 +415,7 @@
                        (funcall resolve team))))
                   '(("api-version" . "7.1-preview.3")))))))
 
-
+;; Initialization
 
 ;; In order to use Azure's API, we need to set the required fields to
 ;; valid values. This can all be done interactively via ~azure-init~. If
@@ -398,6 +450,7 @@
 
   You'll be prompted if these settings should be persisted to disk."
   (interactive)
+  (hack-dir-local-variables-non-file-buffer)
   (when (eq azure-organization nil)
     (setq azure-organization
           (url-encode-url
@@ -417,7 +470,7 @@
        (not (eq azure-project nil))
        (not (eq azure-team nil))))
 
-
+;; Minor mode
 
 ;; This package is written as a minor-mode in order to cleanly provide
 ;; menus & bindings.

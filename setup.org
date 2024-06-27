@@ -6,15 +6,7 @@
 #+html_head: 
 #+html_head_extra: <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
 #+html_head_extra: <link rel="stylesheet" href="./docs.css">
-#+html_head_extra: <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@10.7.2/styles/atelier-heath-light.min.css">
-#+html_head_extra: <script src="https://unpkg.com/@highlightjs/cdn-assets@10.7.2/highlight.min.js"></script>
 #+html_head_extra: <script defer src="./docs.js"></script>
-#+latex_class: article
-#+latex_header: \usepackage[cache=false]{minted}
-#+latex_header: \usemintedstyle{colorful}
-#+latex_header: \setminted{frame=lines,numbers=none,linenos=false}
-#+latex_header: \hypersetup{hidelinks}
-
 
 * Development
 
@@ -27,13 +19,66 @@ is prefixed with an additional semi-colon and run linting of the final output.
   (when (s-prefix? "azure" (file-name-base (buffer-file-name (current-buffer))))
     (with-current-buffer (current-buffer)
       (goto-char (point-min))
-      (insert ";; -*- coding: utf-8; lexical-binding: t; -*-\n")
-      (while (re-search-forward "^;; \\([^:]+\\):$" nil 'noerror)
-        (replace-match ";;; \\1:" 'fixedcase))
+      (beginning-of-line)
+      (insert ";")
+      (end-of-line)
+      (insert " -*- coding: utf-8; lexical-binding: t; -*-")
+      (save-excursion
+	(while (re-search-forward "^;; \\([A-Z][^:]+\\):$" nil 'noerror)
+          (replace-match ";;; \\1:" 'fixedcase)
+	  (forward-line -1)))
+      (eval-buffer)
       (save-buffer)
       (package-lint-current-buffer))))
 
 (add-hook 'org-babel-post-tangle-hook 'package-post-tangle-hook)
+#+end_src
+
+
+
+* Publishing
+:properties:
+:header-args: :mkdirp yes :results none
+:end:
+
+#+name: publishing
+#+begin_src emacs-lisp
+(add-to-list 'org-publish-project-alist
+	     `("azure-html-docs"
+	       :base-directory ,default-directory
+	       :publishing-directory ,(expand-file-name "docs" default-directory)
+	       :publishing-function org-html-publish-to-html
+	       :section-numbers nil
+	       :htmlize-output-type "css"
+	       :htmlized-source t))
+
+(setq org-export-html-style-include-scripts ""
+      org-export-html-style-include-default ""
+      org-html-style ""
+      org-html-style-default ""
+      org-html-mathjax-template ""
+      org-html-postamble nil
+      org-html-htmlize-output-type 'css
+      ;; Ignore auxiliary files made when publishing pdf's
+      org-latex-logfiles-extensions
+      (quote ("lof" "lot" "tex" "aux" "idx" "log" "out" "toc" "nav" "snm" "vrb"
+              "dvi" "fdb_latexmk" "blg" "brf" "fls" "entoc" "ps" "spl" "bbl"))
+      ;; Enforce correct indentation
+      org-indent-indentation-per-level 0
+      org-src-preserve-indentation nil
+      org-edit-src-content-indentation 0
+      org-adapt-indentation nil)
+#+end_src
+
+#+begin_src css :tangle docs/docs.css
+:root {
+    margin: 0;
+    padding: 0;
+}
+#+end_src
+
+#+begin_src javascript :tangle docs/docs.js
+console.log('works');
 #+end_src
 
 * License
@@ -46,7 +91,7 @@ is prefixed with an additional semi-colon and run linting of the final output.
 
 #+name: license
 #+begin_src text :tangle LICENSE.txt :noweb yes
-Copyright (C) <<year()>> Henrik Kjerringvåg 
+Copyright (C) <<year()>> Henrik Kjerringvåg
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

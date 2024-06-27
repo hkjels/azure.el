@@ -1,12 +1,11 @@
-;; -*- coding: utf-8; lexical-binding: t; -*-
-
+;;; azure-evil.el --- Evil bindings for azure.el & friends -*- coding: utf-8; lexical-binding: t; -*-
 ;; Author: Henrik Kjerringvåg <henrik@kjerringvag.no>
 ;; Version: 2022.07.15
 ;; URL: https://github.com/hkjels/azure.el
 ;; Keywords: tools, azure, evil
 ;; Package-Requires: ((emacs "28.1") (evil "1.15.0") (azure "2022.07.15"))
 
-;; Copyright (C) 2023 Henrik Kjerringvåg 
+;; Copyright (C) 2024 Henrik Kjerringvåg
 ;; 
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -21,14 +20,18 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Commentary:
+;;; This package provides Evil bindings for azure.el.
 
-;; This package provides Evil bindings for azure.el.
 
 
+;; Code:
 
 (require 'evil)
 (require 'azure)
 (require 'azure-devops)
+
+;; Bindings for devops
 
 (evil-set-initial-state 'azure-devops-search-mode 'motion)
 
